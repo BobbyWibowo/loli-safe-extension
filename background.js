@@ -20,11 +20,12 @@ browser.storage.onChanged.addListener(function (changes, namespace) {
     config[key] = changes[key].newValue
 })
 
-const createMenus = function (refresh) {
+const createMenus = async function (refresh) {
   if (!config) config = {}
   if (!config.textDomain) config.textDomain = 'https://safe.fiery.me'
 
   const uploadable = ['image', 'video', 'audio']
+  const uploadablePlus = uploadable.concat(['page'])
 
   const menus = {
     parent: null,
@@ -33,9 +34,12 @@ const createMenus = function (refresh) {
       const CM = browser.menus.create({
         title: name.replace('&', '&&'),
         parentId: menus.parent,
-        contexts: uploadable,
+        contexts: uploadablePlus,
         onclick (info) {
-          upload(info.srcUrl, info.pageUrl, menus.children[info.menuItemId])
+          if (info.srcUrl)
+            upload(info.srcUrl, info.pageUrl, menus.children[info.menuItemId])
+          else
+            uploadScreenshot(menus.children[info.menuItemId])
         }
       }, function (a) {
         menus.children[CM] = id // Binds the Album ID to the Context Menu ID
@@ -43,272 +47,233 @@ const createMenus = function (refresh) {
     }
   }
 
-  browser.menus.removeAll().then(function () {
-    console.log('Removed old menus.')
+  await browser.menus.removeAll()
 
-    /* == Parent Context Menu == */
-    menus.parent = browser.menus.create({
-      title,
-      contexts: ['all']
+  /* == Parent Context Menu == */
+  menus.parent = browser.menus.create({
+    title,
+    contexts: ['all']
+  })
+
+  if (config.textToken) {
+    browser.menus.create({
+      title: 'Go to dashboard',
+      parentId: menus.parent,
+      contexts: ['all'],
+      onclick () {
+        browser.tabs.create({
+          url: `${config.textDomain}/dashboard`
+        })
+      }
     })
 
     /* == Refresh == */
-    if (config.textToken) {
-      browser.menus.create({
-        title: 'Go to dashboard',
-        parentId: menus.parent,
-        contexts: ['all'],
-        onclick () {
-          browser.tabs.create({
-            url: `${config.textDomain}/dashboard`
-          })
-        }
-      })
+    browser.menus.create({
+      title: 'Refresh albums list',
+      parentId: menus.parent,
+      contexts: uploadablePlus,
+      onclick () {
+        createMenus(true)
+      }
+    })
 
-      browser.menus.create({
-        title: 'Refresh albums list',
-        parentId: menus.parent,
-        contexts: uploadable,
-        onclick () {
-          notifications.create('basic', 'Refreshing\u2026')
-          createMenus(true)
-        }
-      })
+    /* == Separator == */
+    browser.menus.create({
+      parentId: menus.parent,
+      contexts: uploadablePlus,
+      type: 'separator'
+    })
+  }
 
-      /* == Separator == */
-      browser.menus.create({
-        parentId: menus.parent,
-        contexts: uploadable,
-        type: 'separator'
-      })
+  /* == Upload normally == */
+  browser.menus.create({
+    title: 'Send file to safe',
+    parentId: menus.parent,
+    contexts: uploadable,
+    onclick (info) {
+      upload(info.srcUrl, info.pageUrl)
     }
+  })
 
-    /* == Upload normally == */
+  browser.menus.create({
+    title: 'Screenshot entire page',
+    parentId: menus.parent,
+    contexts: ['page'],
+    onclick (info) {
+      uploadScreenshot()
+    }
+  })
+
+  if (config.textToken) {
+    /* == Separator == */
     browser.menus.create({
-      title: 'Send to safe',
       parentId: menus.parent,
-      contexts: uploadable,
-      onclick (info) { upload(info.srcUrl, info.pageUrl) }
+      contexts: uploadablePlus,
+      type: 'separator'
     })
 
-    browser.menus.create({
-      title: 'Screenshot entire page',
-      parentId: menus.parent,
-      contexts: ['page'],
-      onclick (info) {
-        browser.tabs.captureVisibleTab({
-          format: 'png'
-        }, function (data) {
-          const blob = b64toBlob(data.replace('data:image/png;base64,', ''), 'image/png')
-          uploadScreenshot(blob)
-        })
-      }
-    })
+    let notificationID
+    if (refresh)
+      notificationID = await notifications.create('Refreshing\u2026')
 
-    /*
-    browser.menus.create({
-      title: 'Screenshot selection',
-      parentId: menus.parent,
-      contexts: ['page'],
-      onclick (info) {
-        browser.tabs.captureVisibleTab({
-          format: 'png'
-        }, function () {
-          browser.tabs.query({ 'active': true }, function (tabs) {
-            browser.tabs.sendMessage(tabs[0].id, { action: 1 })
-          })
-        })
-      }
-    })
-    */
-
-    if (config.textToken) {
-      /* == Separator == */
-      browser.menus.create({
-        parentId: menus.parent,
-        contexts: uploadable,
-        type: 'separator'
+    let errored = false
+    try {
+      const response = await axios.get(`${config.textDomain}/api/albums`, {
+        headers: { token: config.textToken }
       })
 
-      axios.get(`${config.textDomain}/api/albums`, {
-        headers: {
-          token: config.textToken
-        }
-      }).then(function (list) {
-        if (refresh)
-          notifications.create('basic', 'Refresh completed.')
-
-        if (list.data.albums.length === 0) {
-          browser.menus.create({
-            title: 'No albums available',
-            parentId: menus.parent,
-            contexts: uploadable,
-            type: 'normal',
-            enabled: false
-          })
-        } else {
-          browser.menus.create({
-            title: 'Upload to:',
-            parentId: menus.parent,
-            contexts: uploadable,
-            type: 'normal',
-            enabled: false
-          })
-
-          list.data.albums.forEach(function (album) {
-            console.log(album.id, album.name)
-            menus.createMenu(album.id, album.name)
-          })
-        }
-      }).catch(function (error) {
-        console.error(error)
+      if (response.data.albums.length === 0) {
         browser.menus.create({
-          title: 'Error getting albums',
+          title: 'No albums available',
+          parentId: menus.parent,
+          contexts: uploadablePlus,
+          type: 'normal',
+          enabled: false
+        })
+      } else {
+        console.log(`Fetched ${response.data.albums.length} album(s).`)
+        browser.menus.create({
+          title: 'Upload file to:',
           parentId: menus.parent,
           contexts: uploadable,
           type: 'normal',
           enabled: false
         })
+        browser.menus.create({
+          title: 'Upload screenshot to:',
+          parentId: menus.parent,
+          contexts: ['page'],
+          type: 'normal',
+          enabled: false
+        })
+        response.data.albums.forEach(function (album) {
+          menus.createMenu(album.id, album.name)
+        })
+      }
+    } catch (error) {
+      errored = true
+      browser.menus.create({
+        title: 'Error fetching albums',
+        parentId: menus.parent,
+        contexts: uploadablePlus,
+        type: 'normal',
+        enabled: false
       })
     }
-  })
+
+    if (notificationID) {
+      const message = errored
+        ? 'Error fetching albums.'
+        : 'Refresh completed.'
+      await notifications.update(notificationID, { message })
+      return notifications.clear(notificationID, 5000)
+    }
+  }
 }
 
-/* == We need to set this header for image sources that check it for auth or to prevent hotlinking == */
-/*
-const refererHeader = null
+const upload = async function (url, pageURL, albumid) {
+  const notificationID = await notifications.create('Retrieving file\u2026')
 
-browser.webRequest.onBeforeSendHeaders.addListener(function (details) {
-  if (details.tabId === -1 && details.method === 'GET' && refererHeader !== null) {
-    details.requestHeaders.push({
-      name: 'Referer',
-      value: refererHeader
-    })
-    details.requestHeaders.push({
-      name: 'Referrer',
-      value: refererHeader
-    })
-  }
-  return { requestHeaders: details.requestHeaders }
-}, { urls: ['<all_urls>'] }, ['blocking', 'requestHeaders'])
-*/
+  try {
+    // Intercept request to add Referer header
+    // Using axios options is not possible due to Referer
+    // being one of the forbidden header names
+    // Source: https://fetch.spec.whatwg.org/#forbidden-header-name
+    const interceptRequest = function (details) {
+      if (details.tabId === -1 && details.method === 'GET' && details.url === url)
+        details.requestHeaders.push({ name: 'Referer', value: pageURL })
+      return { requestHeaders: details.requestHeaders }
+    }
 
-const upload = function (url, pageURL, albumid) {
-  const notification = notifications.create('basic', 'Retrieving file\u2026', null, true)
+    browser.webRequest.onBeforeSendHeaders
+      .addListener(interceptRequest, { urls: [url] }, ['blocking', 'requestHeaders'])
 
-  const errored = function (error) {
+    const file = await axios.get(url, { responseType: 'blob' })
+
+    browser.webRequest.onBeforeSendHeaders
+      .removeListener(interceptRequest)
+
+    const formData = new FormData()
+    formData.append('files[]', file.data, `lolisafe_file${fileExt(file.data.type)}`)
+
+    return uploadFinally(formData, albumid, notificationID)
+  } catch (error) {
     console.error(error)
-    notifications.update(notification, {
-      type: 'basic',
+    await notifications.update(notificationID, {
       message: error.toString(),
       contextMessage: url
     })
+    return notifications.clear(notificationID, 5000)
   }
-
-  axios.get(url, {
-    responseType: 'blob',
-    headers: {
-      referer: pageURL
-    }
-  }).then(function (file) {
-    notifications.update(notification, {
-      type: 'progress',
-      message: 'Uploading\u2026',
-      progress: 0
-    })
-
-    const data = new FormData()
-    data.append('files[]', file.data, `upload${fileExt(file.data.type)}`)
-
-    const options = {
-      method: 'POST',
-      url: `${config.textDomain}/api/upload`,
-      data,
-      headers: {},
-      onUploadProgress (progress) {
-        notifications.update(notification, {
-          progress: Math.round((progress.loaded * 100) / progress.total)
-        })
-      }
-    }
-
-    if (config.textToken) options.headers['token'] = config.textToken
-
-    if (albumid && config.textToken)
-      options.url = `${options.url}/${albumid}`
-
-    axios(options).then(function (response) {
-      if (response.data.success === true) {
-        copyText(response.data.files[0].url)
-        notifications.update(notification, {
-          type: 'basic',
-          message: 'Upload completed.',
-          contextMessage: response.data.files[0].url
-        })
-        notifications.clear(notification, 5000)
-      } else {
-        notifications.update(notification, {
-          type: 'basic',
-          message: response.data.description,
-          contextMessage: url
-        })
-      }
-    }).catch(errored)
-  }).catch(errored)
 }
 
-browser.runtime.onMessage.addListener(function (request, sender, sendResponse) {
-  if ('coordinates' in request)
-    console.log(request.coordinates)
-})
+const uploadScreenshot = async function (albumid) {
+  const notificationID = await notifications.create('Capturing tab\u2026')
 
-const uploadScreenshot = function (blob, albumid) {
-  const notification = notifications.create('progress', 'Uploading\u2026', null, true, 0)
+  try {
+    const captured = await browser.tabs.captureVisibleTab({ format: 'png' })
+    const blob = b64toBlob(captured.replace('data:image/png;base64,', ''), 'image/png')
 
-  const data = new FormData()
-  data.append('files[]', blob, 'upload.png')
+    const formData = new FormData()
+    formData.append('files[]', blob, 'lolisafe_screenshot.png')
 
+    return uploadFinally(formData, albumid, notificationID)
+  } catch (error) {
+    console.error(error)
+    await notifications.update(notificationID, {
+      message: error.toString()
+    })
+    return notifications.clear(notificationID, 5000)
+  }
+}
+
+const uploadFinally = async function (formData, albumId, notificationID) {
+  let lastProgTime = Date.now()
   const options = {
     method: 'POST',
     url: `${config.textDomain}/api/upload`,
-    data,
+    data: formData,
     headers: {},
     onUploadProgress (progress) {
-      notifications.update(notification, {
+      // Add a minimum of 1000ms delay between each progress notification
+      if (Date.now() - lastProgTime < 1000) return
+      lastProgTime = Date.now()
+      notifications.update(notificationID, {
         progress: Math.round((progress.loaded * 100) / progress.total)
       })
     }
   }
 
-  if (config.textToken) options.headers['token'] = config.textToken
+  if (config.textToken)
+    options.headers.token = config.textToken
 
-  if (albumid && config.textToken)
-    options.url = `${options.url}/${albumid}`
+  if (albumId && config.textToken)
+    options.url = `${options.url}/${albumId}`
 
-  axios(options).then(function (response) {
-    if (response.data.success === true) {
-      copyText(response.data.files[0].url)
-      notifications.update(notification, {
-        type: 'basic',
-        message: 'Upload completed.',
-        contextMessage: response.data.files[0].url
-      })
-      notifications.clear(notification, 5000)
-    } else {
-      notifications.update(notification, {
-        type: 'basic',
-        message: 'An error occurred.',
-        contextMessage: response.data.description
-      })
-    }
-  }).catch(function (error) {
-    console.log(error)
-    notifications.update(notification, {
-      type: 'basic',
-      message: 'An error occurred.',
-      contextMessage: error.toString()
-    })
+  await notifications.update(notificationID, {
+    message: 'Uploading\u2026',
+    progress: 0
   })
+
+  const response = await axios(options)
+
+  if (response.data.success !== true)
+    throw new Error(response.data.description)
+
+  let copied
+  if (config.autoCopyUrl !== false)
+    copied = await copyText(response.data.files[0].url)
+
+  await notifications.update(notificationID, {
+    message: copied
+      ? 'Uploaded and copied URL to clipboard.'
+      : 'Upload completed.',
+    contextMessage: response.data.files[0].url,
+    toCopy: copied
+      ? null
+      : response.data.files[0].url
+  })
+  return notifications.clear(notificationID, 10000)
 }
 
 const mimetypes = {
@@ -331,20 +296,26 @@ const fileExt = function (mimetype) {
   return mimetypes[mimetype] || `.${mimetype.split('/')[1]}`
 }
 
-const copyText = function (text) {
-  // Firefox can't copy to clipboard from background script
-  browser.tabs.executeScript({
-    code: `
-      (function () {
-        const input = document.createElement('textarea')
-        document.body.appendChild(input)
-        input.value = ${JSON.stringify(text)}
-        input.select()
-        document.execCommand('Copy')
-        input.remove()
-      })()
-    `
-  })
+const copyText = async function (text) {
+  try {
+    // Firefox can't copy to clipboard from background script
+    await browser.tabs.executeScript({
+      code: `
+        (function () {
+          const input = document.createElement('textarea')
+          document.body.appendChild(input)
+          input.value = ${JSON.stringify(text)}
+          input.select()
+          document.execCommand('Copy')
+          input.remove()
+        })()
+      `
+    })
+    return true
+  } catch (error) {
+    console.error('Unable to execute script on the tab.')
+    return false
+  }
 }
 
 // http://stackoverflow.com/a/16245768
@@ -372,83 +343,75 @@ const b64toBlob = function (b64Data, contentType, sliceSize) {
 }
 
 const notifications = {
-  caches: new Map(),
-  compatibility (_options) {
-    // For Firefox, due to very limited notification support
+  caches: {},
+  compat (_options) {
+    // Compatibility for Firefox, due to very limited notification support
     const options = {}
     Object.assign(options, _options)
 
     if (options.progress !== undefined) {
-      options.type = 'basic'
-      options.message = `${options.message} (${options.progress}%)`
-      delete options.progress
+      const progress = parseInt(options.progress)
+      if (!isNaN(progress))
+        options.message += ` (${options.progress}%)`
     }
 
-    if (options.type !== 'basic')
-      options.type = 'basic'
+    if (options.contextMessage)
+      options.message += `\n${options.contextMessage}`
 
-    if (options.contextMessage) {
-      options.message = `${options.message}\n${options.contextMessage}`
-      delete options.contextMessage
-    }
+    delete options.progress
+    delete options.contextMessage
+    delete options.toCopy
 
     return options
   },
-  create (type, text, altText, sticky, progress) {
-    const notificationContent = {
-      type,
+  async create (message, contextMessage, progress) {
+    const options = {
+      type: 'basic',
       title,
-      message: text,
+      message,
+      contextMessage,
+      progress,
       iconUrl: 'logo-128x128.png'
     }
 
-    if (altText)
-      notificationContent.contextMessage = altText
-
-    progress = parseInt(progress)
-    if (!isNaN(progress))
-      notificationContent.progress = progress
-
     const id = `lolisafe_${Date.now()}`
-    notifications.caches.set(id, notificationContent)
-    browser.notifications.create(id, notifications.compatibility(notificationContent))
-    return id
+
+    // Cache options
+    notifications.caches[id] = options
+    return browser.notifications.create(id, notifications.compat(options))
   },
-  update (id, options) {
-    // Firefox does not have notifications.update()...
+  async update (id, options = {}) {
+    // Firefox does not have built-in notification update function
     const properties = ['title', 'message', 'type', 'iconUrl']
 
-    const defined = properties.every(function (property) {
-      return options[property] !== undefined
-    })
-
-    if (!defined) {
-      const cache = notifications.caches.get(id)
-      if (!cache) return
-      properties.map(function (property) {
+    // Re-use cache of properties with keys specified above
+    const cache = notifications.caches[id]
+    if (cache)
+      for (const property of properties)
         if (options[property] === undefined)
           options[property] = cache[property]
-      })
-    }
 
-    notifications.caches.set(id, options)
-    // Calling create() with the same ID will not make Firefox remove the previous notification
-    // Not sure if this is working though
-    browser.notifications.clear(id, function () { console.log('cleared') })
-    browser.notifications.create(notifications.compatibility(options), function () { console.log('updated') })
-    return id
+    // Cache options
+    notifications.caches[id] = options
+    return browser.notifications.create(id, notifications.compat(options))
   },
-  clear (id, timeout) {
-    setTimeout(function () {
-      browser.notifications.clear(id).then(function () {
-        notifications.caches.delete(id)
+  async clear (id, timeout) {
+    if (timeout)
+      await new Promise(function (resolve) {
+        setTimeout(function () {
+          return resolve()
+        }, timeout)
       })
-    }, timeout || 0)
+    delete notifications.caches[id]
+    return browser.notifications.clear(id)
   }
 }
 
-browser.notifications.onClicked.addListener(function (id) {
-  browser.notifications.clear(id)
+browser.notifications.onClicked.addListener(async function (id) {
+  // If the URL was not auto-copied, try again when clicking the notification
+  const toCopy = notifications.caches[id].toCopy
+  if (toCopy) await copyText(copyText)
+  return notifications.clear(id)
 })
 
 window.notifications = notifications

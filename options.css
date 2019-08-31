@@ -1,0 +1,14 @@
+body {
+  margin-top: 10px;
+}
+
+section {
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+label > input[type="text"] {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+}

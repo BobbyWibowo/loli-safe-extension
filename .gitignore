@@ -1,6 +1,8 @@
 # Files
 /.web-extension-id
 /sign.sh
+/yarn.lock
 
 # Folders
 /web-ext-artifacts/
+/node_modules/

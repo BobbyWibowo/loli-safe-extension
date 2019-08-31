@@ -3,27 +3,40 @@
 const storage = browser.storage.local
 const background = browser.extension.getBackgroundPage()
 
-document.addEventListener('DOMContentLoaded', function () {
-  storage.get(items => {
-    for (const key in items)
-      document.getElementById(key).value = items[key]
+storage.get().then(function (items) {
+  document.querySelector('form').addEventListener('submit', function (event) {
+    event.preventDefault()
   })
+
+  const textKeys = ['textDomain', 'textToken']
+  textKeys.forEach(key => {
+    if (items[key]) document.querySelector(`#${key}`).value = items[key]
+  })
+
+  // Defaults to checked
+  if (items.autoCopyUrl !== false)
+    document.querySelector('#autoCopyUrl').checked = true
 })
 
-document.getElementById('reset').addEventListener('click', function () {
-  document.getElementById('textDomain').value = ''
-  document.getElementById('textToken').value = ''
+document.querySelector('#reset').addEventListener('click', async function () {
+  document.querySelector('#textDomain').value = ''
+  document.querySelector('#textToken').value = ''
+  document.querySelector('#autoCopyUrl').checked = true
 
-  storage.clear().then(function () {
-    background.notifications.create('basic', 'Settings cleared.')
-  }).catch(function (error) {
-    background.notifications.create('basic', error.toString())
-  })
+  let notificationID
+  try {
+    await storage.clear()
+    notificationID = await background.notifications.create('Settings cleared.')
+  } catch (error) {
+    notificationID = await background.notifications.create(error.toString())
+  }
+  return background.notifications.clear(notificationID, 5000)
 })
 
-document.getElementById('save').addEventListener('click', function () {
-  const textDomain = document.getElementById('textDomain').value
-  const textToken = document.getElementById('textToken').value || null
+document.querySelector('#save').addEventListener('click', async function () {
+  const textDomain = document.querySelector('#textDomain').value || null
+  const textToken = document.querySelector('#textToken').value || null
+  const autoCopyUrl = document.querySelector('#autoCopyUrl').checked
 
   if (textDomain) {
     if (!/^https?:\/\//.test(textDomain))
@@ -33,10 +46,13 @@ document.getElementById('save').addEventListener('click', function () {
       return alert('Domain should not have a trailing slash.')
   }
 
-  storage.set({ textDomain, textToken }).then(function () {
-    background.createMenus()
-    background.notifications.create('basic', 'Settings saved.')
-  }).catch(function (error) {
-    background.notifications.create('basic', error.toString())
-  })
+  let notificationID
+  try {
+    await storage.set({ textDomain, textToken, autoCopyUrl })
+    notificationID = await background.notifications.create('Settings saved.')
+    await background.createMenus()
+  } catch (error) {
+    notificationID = await background.notifications.create(error.toString())
+  }
+  return background.notifications.clear(notificationID, 5000)
 })

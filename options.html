@@ -1,52 +1,57 @@
 <!doctype html>
 <html>
-<head>
-  <meta charset="utf-8" />
-  <style>
-    .row {
-      margin-bottom: 10px;
-    }
+  <head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <form>
+      <section>
+        <img src="./logo-128x128.png">
+      </section>
 
-    .row:last-child {
-      margin-bottom: 0;
-    }
+      <section>
+        This page will help you setup your lolisafe extension so you can rehost images/audio/videos by right clicking on them.
+      </section>
 
-    .buttons {
-      text-align: right;
-    }
+      <section>
+        If you want to keep track of your uploads and be able to create albums to store them, you should create an account on the website and paste the token here, so that every upload gets tied to your account, enabling you to go back to the site and see all of your uploaded files.
+      </section>
 
-    label {
-      display: block;
-    }
+      <section>
+        <label for="textDomain">
+          Domain on which lolisafe is running:
+          <input type="text" id="textDomain" placeholder="https://safe.fiery.me">
+        </label>
+      </section>
 
-    input[type="text"] {
-      display: block;
-      width: 100%;
-      margin-top: 5px;
-    }
-  </style>
-</head>
-<body>
-  <div class="row">
-    This page will help you setup your lolisafe extension so you can rehost images/audio/videos by right clicking on them.<br>
-    For this to work you need to provide the domain where lolisafe is running.<br>
-    If you want to keep track of your uploads and be able to create albums to store them, you should create an account on the website and paste the token here, so that every upload gets tied to your account, enabling you to go back to the site and see all of your uploaded files.
-  </div>
+      <section>
+        <label for="textToken">
+          Your token (optional):
+          <input type="text" id="textToken" placeholder="">
+        </label>
+      </section>
 
-  <div class="row">
-    <label for="textDomain">Domain on which lolisafe is running:</label>
-    <input type="text" id="textDomain" placeholder="https://safe.fiery.me" />
-  </div>
+      <section>
+        <label for="autoCopyUrl">
+          <input type="checkbox" id="autoCopyUrl">
+          Automatically copy URL to clipboard after upload
+        </label>
+      </section>
 
-  <div class="row">
-    <label for="textToken">Your token (optional):</label>
-    <input type="text" id="textToken" placeholder="" />
-  </div>
+      <section>
+        <input type="button" id="reset" value="Reset">
+        <input type="submit" id="save" value="Save">
+      </section>
 
-  <div class="row buttons">
-    <input type="button" id="reset" value="Reset" />
-    <input type="button" id="save" value="Save" />
-  </div>
+      <section>
+        <a href="https://safe.fiery.me" target="_blank" rel="noopener">safe.fiery.me</a>
+      </section>
 
-  <script src="options.js"></script>
-</body>
+      <section>
+        <a href="https://github.com/BobbyWibowo/loli-safe-extension" target="_blank" rel="noopener">GitHub</a>
+      </section>
+    </form>
+    <script src="options.js"></script>
+  </body>
+</html>
