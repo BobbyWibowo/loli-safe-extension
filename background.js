@@ -96,7 +96,7 @@ const createMenus = async function (refresh) {
   })
 
   browser.menus.create({
-    title: 'Screenshot entire page',
+    title: 'Screenshot visible page',
     parentId: menus.parent,
     contexts: ['page'],
     onclick (info) {
@@ -410,7 +410,7 @@ const notifications = {
 browser.notifications.onClicked.addListener(async function (id) {
   // If the URL was not auto-copied, try again when clicking the notification
   const toCopy = notifications.caches[id].toCopy
-  if (toCopy) await copyText(copyText)
+  if (toCopy) await copyText(toCopy)
   return notifications.clear(id)
 })
 
